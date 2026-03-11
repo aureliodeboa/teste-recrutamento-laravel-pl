@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
@@ -11,13 +12,15 @@ class DatabaseSeeder extends Seeder
     {
         DB::table('administradores')->updateOrInsert(
             ['login' => 'admin'],
-            ['nome' => 'Administrador', 'senha' => '123456']  // senha em texto puro, sem hash
+            ['nome' => 'Administrador', 'senha' => Hash::make('123456')]
         );
 
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
         DB::table('movimentacoes')->truncate();
         DB::table('funcionarios')->truncate();
         DB::statement('SET FOREIGN_KEY_CHECKS=1');
+
+        $senhaHash = Hash::make('123456');
 
         $funcionariosBase = [
             ['nome' => 'João Silva', 'login' => 'joao.silva'],
@@ -29,11 +32,10 @@ class DatabaseSeeder extends Seeder
         for ($i = 0; $i < 5000; $i++) {
             $base = $funcionariosBase[$i % 3];
             $funcionarios[] = [
-                'nome'    => $base['nome'] . ' ' . ($i + 1),
-                'login'   => $base['login'] . '.' . $i,
-                'senha'   => '123456',
-                'saldo'   => rand(0, 2000) / 10,
-                'deleted' => 0,
+                'nome'  => $base['nome'] . ' ' . ($i + 1),
+                'login' => $base['login'] . '.' . $i,
+                'senha' => $senhaHash,
+                'saldo' => rand(0, 2000) / 10,
             ];
         }
 
@@ -60,7 +62,7 @@ class DatabaseSeeder extends Seeder
                         'tipo'           => $tipo,
                         'valor'          => $valor,
                         'descricao'      => $descricao,
-                        'created_at'      => now()->subDays(rand(0, 90)),
+                        'created_at'     => now()->subDays(rand(0, 90)),
                     ];
 
                     if (count($movimentacoesBuffer) >= $bufferSize) {
