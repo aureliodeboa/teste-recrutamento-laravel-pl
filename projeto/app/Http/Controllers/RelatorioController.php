@@ -2,35 +2,26 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Support\Facades\DB;
+use App\Models\Funcionario;
+use Illuminate\Http\JsonResponse;
 
 class RelatorioController extends Controller
 {
-    public function index()
+    public function index(): JsonResponse
     {
-        $funcionarios = DB::select("SELECT * FROM funcionarios WHERE deleted = 0");
-        $resultado = [];
-
-        foreach ($funcionarios as $f) {
-            $movimentacoes = DB::select("SELECT * FROM movimentacoes WHERE funcionario_id = {$f->id}");
-            $totalEntradas = 0;
-            $totalSaidas = 0;
-            foreach ($movimentacoes as $m) {
-                if ($m->tipo === 'entrada') {
-                    $totalEntradas += $m->valor;
-                } else {
-                    $totalSaidas += $m->valor;
-                }
-            }
-            $resultado[] = [
-                'id' => $f->id,
-                'nome' => $f->nome,
-                'saldo' => $f->saldo,
-                'total_entradas' => $totalEntradas,
-                'total_saidas' => $totalSaidas,
-                'movimentacoes_count' => count($movimentacoes),
-            ];
-        }
+        $resultado = Funcionario::query()
+            ->leftJoin('movimentacoes', 'funcionarios.id', '=', 'movimentacoes.funcionario_id')
+            ->selectRaw('
+                funcionarios.id,
+                funcionarios.nome,
+                funcionarios.saldo,
+                COALESCE(SUM(CASE WHEN movimentacoes.tipo = "entrada" THEN movimentacoes.valor ELSE 0 END), 0) as total_entradas,
+                COALESCE(SUM(CASE WHEN movimentacoes.tipo = "saida" THEN movimentacoes.valor ELSE 0 END), 0) as total_saidas,
+                COUNT(movimentacoes.id) as movimentacoes_count
+            ')
+            ->whereNull('funcionarios.deleted_at')
+            ->groupBy('funcionarios.id', 'funcionarios.nome', 'funcionarios.saldo')
+            ->paginate(15);
 
         return response()->json($resultado);
     }
