@@ -12,6 +12,11 @@ class FuncionarioList extends Component
 
     public string $busca = '';
 
+    public function paginationView(): string
+    {
+        return 'vendor.livewire.pagination';
+    }
+
     public function updatingBusca(): void
     {
         $this->resetPage();
