@@ -12,6 +12,10 @@ O ambiente sobe automaticamente: o entrypoint cria o `.env`, gera a `APP_KEY`, r
 
 Acesse `http://localhost:8000` para verificar que o sistema está no ar.
 
+O diferencial pedido no enunciado (listagem em Livewire) está disponível em:
+
+- `http://localhost:8000/funcionarios` — página com listagem reativa de funcionários (busca + paginação) construída com Livewire.
+
 Para parar:
 
 ```bash
@@ -174,6 +178,8 @@ Não existem models para `Administrador`, `Funcionario` ou `Movimentacao`. Todo 
 
 **Risco real:** fácil esquecer o filtro `deleted = 0` em novas queries, expondo registros "deletados". Sem timestamp de deleção, não há rastreio de quando o registro foi removido.
 
+**Correção aplicada:** adicionada a trait `SoftDeletes` no model `Funcionario`, que usa a coluna padrão `deleted_at` (timestamp). A migration `2024_01_02_000000_modernize_tables.php` adiciona a coluna `deleted_at` e converte registros existentes com `deleted = 1` para `deleted_at = now()`, preservando o estado anterior. Todos os filtros manuais `WHERE deleted = 0` foram eliminados — o Eloquent aplica o scope automaticamente.
+
 #### MÉDIO — Saldo inconsistente no Seeder
 
 | Arquivo | Linha | Detalhe |
@@ -198,7 +204,7 @@ Não existem models para `Administrador`, `Funcionario` ou `Movimentacao`. Todo 
 
 **Risco real:** em produção, um simples restart do container apagaria todos os funcionários e movimentações financeiras. O seeder deve rodar apenas na primeira inicialização ou sob comando manual.
 
-**Correção aplicada:** o entrypoint agora usa um lock file (`storage/.seeded`) para garantir que o seed roda apenas uma vez. Migrations continuam rodando sempre (são idempotentes por natureza).
+**Correção aplicada:** o entrypoint verifica se a tabela `administradores` possui registros antes de decidir executar o seeder. Se o banco estiver vazio (após `docker compose down -v`, por exemplo), o seed roda automaticamente. Se já houver dados, é ignorado. Essa abordagem é mais robusta que um lock file, pois funciona corretamente com volumes montados do host.
 
 #### BAIXO — Tabela `movimentacoes` sem `updated_at`
 
@@ -232,7 +238,7 @@ Não existem models para `Administrador`, `Funcionario` ou `Movimentacao`. Todo 
 
 11. **Ambiente Docker automático** — Prioridade média. Requisito explícito do teste. Correção: script `entrypoint.sh` que configura `.env`, gera key, roda migrations e seed.
 
-12. **Seeder destrutivo a cada restart** — Prioridade média. O seeder apaga todos os dados com `truncate()` e roda sem condição. Correção: lock file (`storage/.seeded`) para garantir que roda apenas na primeira inicialização. A migration de hash de senhas é idempotente (verifica `str_starts_with($senha, '$2y$')` antes de hashear).
+12. **Seeder destrutivo a cada restart** — Prioridade média. O seeder apaga todos os dados com `truncate()` e roda sem condição. Correção: entrypoint verifica se o banco possui dados (`SELECT COUNT(*) FROM administradores`) antes de executar o seed. A migration de hash de senhas é idempotente (verifica `str_starts_with($senha, '$2y$')` antes de hashear).
 
 ### O que decidimos não corrigir e por quê
 
@@ -259,7 +265,7 @@ Não existem models para `Administrador`, `Funcionario` ou `Movimentacao`. Todo 
 | Soft delete de funcionários preserva movimentações | Decisão de negócio: histórico financeiro deve ser mantido para auditoria |
 | Paginação padrão de 15 itens | Equilíbrio entre performance e usabilidade |
 | Testes com Pest PHP | Framework de testes moderno, sintaxe expressiva, recomendado pelo ecossistema Laravel |
-| Seed apenas na primeira inicialização (lock file) | Evita destruição de dados em restarts. Migrations são idempotentes e rodam sempre; o seeder é destrutivo e roda uma vez |
+| Seed condicional (verifica dados no banco) | Evita destruição de dados em restarts. O entrypoint consulta o banco antes de seedar — mais robusto que lock file com volumes montados |
 | Migration de hash de senhas idempotente | Verifica se a senha já é bcrypt (`$2y$`) antes de hashear, permitindo reexecução segura sem corromper senhas já migradas |
 
 ## Como a IA foi utilizada
@@ -269,4 +275,5 @@ A IA (Claude via Cursor) foi utilizada como par de programação durante todo o 
 - **Code Review**: A análise inicial do código legado foi feita com suporte da IA para identificar e catalogar todos os problemas. A priorização e as decisões foram minhas.
 - **Código gerado**: Models, Controllers, Form Requests, API Resources, Service Layer, migrations e testes foram gerados pela IA seguindo as decisões arquiteturais que defini no plano.
 - **O que revisei/ajustei**: Validei cada arquivo gerado, corrigi tipos de comparação nos testes (int vs float), ajustei a migration do Sanctum para ordenação correta, refinei o entrypoint Docker para aguardar MySQL.
+- **Engenharia de contexto com MCP `user-context7`**: Usei o MCP `user-context7` (content7) para buscar documentação atualizada de Laravel, Docker, Livewire e outras dependências sempre que esbarrava em bugs ou comportamentos duvidosos. Essa engenharia de contexto garantiu que a IA respondesse baseada nas versões mais recentes das ferramentas usadas no projeto.
 - **O que a IA não fez**: As decisões de negócio (saldo negativo, soft delete, priorização), a arquitetura (Sanctum vs JWT, Service Layer, SoftDeletes) e a estratégia de testes foram definidas por mim.
