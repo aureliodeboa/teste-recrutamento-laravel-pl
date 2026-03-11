@@ -2,55 +2,61 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Http\Requests\StoreMovimentacaoRequest;
+use App\Http\Resources\MovimentacaoResource;
+use App\Jobs\ProcessarMovimentacao;
+use App\Models\Funcionario;
+use App\Services\MovimentacaoService;
+use Illuminate\Http\JsonResponse;
 
 class MovimentacaoController extends Controller
 {
-    public function index($funcionarioId)
-    {
-        $movimentacoes = DB::select("SELECT * FROM movimentacoes WHERE funcionario_id = $funcionarioId ORDER BY created_at DESC");
+    public function __construct(
+        private MovimentacaoService $movimentacaoService
+    ) {}
 
-        return response()->json($movimentacoes);
+    public function index(Funcionario $funcionario): JsonResponse
+    {
+        $movimentacoes = $funcionario->movimentacoes()
+            ->orderByDesc('created_at')
+            ->paginate(15);
+
+        return MovimentacaoResource::collection($movimentacoes)->response();
     }
 
-    public function store(Request $request, $funcionarioId)
+    public function store(StoreMovimentacaoRequest $request, Funcionario $funcionario): JsonResponse
     {
-        $tipo  = $request->tipo;
-        $valor = $request->valor;
-        $descricao = $request->descricao;
+        try {
+            $resultado = $this->movimentacaoService->registrar(
+                $funcionario,
+                $request->tipo,
+                $request->valor,
+                $request->descricao,
+            );
 
-        $funcionario = DB::select("SELECT * FROM funcionarios WHERE id = $funcionarioId AND deleted = 0");
+            $tipo = $request->tipo === 'entrada' ? 'Entrada' : 'Saída';
 
-        if (empty($funcionario)) {
-            return response()->json(['erro' => 'Funcionário não encontrado'], 404);
+            return response()->json([
+                'mensagem'     => "{$tipo} registrada",
+                'saldo'        => $resultado['saldo'],
+                'movimentacao' => new MovimentacaoResource($resultado['movimentacao']),
+            ], 201);
+        } catch (\DomainException $e) {
+            return response()->json(['erro' => $e->getMessage()], 422);
         }
+    }
 
-        $funcionario = $funcionario[0];
-        $saldoAtual  = $funcionario->saldo;
+    public function storeAsync(StoreMovimentacaoRequest $request, Funcionario $funcionario): JsonResponse
+    {
+        ProcessarMovimentacao::dispatch(
+            $funcionario,
+            $request->tipo,
+            $request->valor,
+            $request->descricao,
+        );
 
-        if ($tipo === 'saida') {
-            if ($saldoAtual < $valor) {
-                return response()->json(['erro' => 'Saldo insuficiente'], 422);
-            }
-
-            DB::insert("INSERT INTO movimentacoes (funcionario_id, tipo, valor, descricao, created_at) VALUES ($funcionarioId, 'saida', $valor, '$descricao', NOW())");
-
-            $novoSaldo = $saldoAtual - $valor;
-            DB::update("UPDATE funcionarios SET saldo = $novoSaldo WHERE id = $funcionarioId");
-
-            return response()->json(['mensagem' => 'Saída registrada', 'saldo' => $novoSaldo]);
-        }
-
-        if ($tipo === 'entrada') {
-            DB::insert("INSERT INTO movimentacoes (funcionario_id, tipo, valor, descricao, created_at) VALUES ($funcionarioId, 'entrada', $valor, '$descricao', NOW())");
-
-            $novoSaldo = $saldoAtual + $valor;
-            DB::update("UPDATE funcionarios SET saldo = $novoSaldo WHERE id = $funcionarioId");
-
-            return response()->json(['mensagem' => 'Entrada registrada', 'saldo' => $novoSaldo]);
-        }
-
-        return response()->json(['erro' => 'Tipo inválido. Use "entrada" ou "saida"'], 422);
+        return response()->json([
+            'mensagem' => 'Movimentação enviada para processamento',
+        ], 202);
     }
 }
