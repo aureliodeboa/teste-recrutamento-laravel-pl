@@ -17,9 +17,12 @@ echo "MySQL pronto."
 
 php artisan migrate --force --no-interaction
 
-if [ ! -f /var/www/storage/.seeded ]; then
+ADMIN_COUNT=$(php -r "try { \$pdo = new PDO('mysql:host=db;port=3306;dbname=painel_db', 'painel', 'secret'); echo \$pdo->query('SELECT COUNT(*) FROM administradores')->fetchColumn(); } catch(Exception \$e) { echo '0'; }")
+if [ "$ADMIN_COUNT" = "0" ]; then
+    echo "Banco vazio — executando seeder..."
     php artisan db:seed --force --no-interaction
-    touch /var/www/storage/.seeded
+else
+    echo "Banco ja possui dados — seeder ignorado."
 fi
 
 php-fpm
