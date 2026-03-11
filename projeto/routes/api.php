@@ -6,20 +6,16 @@ use App\Http\Controllers\MovimentacaoController;
 use App\Http\Controllers\RelatorioController;
 use Illuminate\Support\Facades\Route;
 
-// Autenticação
-Route::post('/login',  [AuthController::class, 'login']);
-Route::post('/logout', [AuthController::class, 'logout']);
+Route::post('/login', [AuthController::class, 'login']);
 
-// Funcionários
-Route::get('/funcionarios',          [FuncionarioController::class, 'index']);
-Route::get('/funcionarios/{id}',     [FuncionarioController::class, 'show']);
-Route::post('/funcionarios',         [FuncionarioController::class, 'store']);
-Route::put('/funcionarios/{id}',     [FuncionarioController::class, 'update']);
-Route::delete('/funcionarios/{id}',  [FuncionarioController::class, 'destroy']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout']);
 
-// Movimentações
-Route::get('/funcionarios/{id}/movimentacoes',  [MovimentacaoController::class, 'index']);
-Route::post('/funcionarios/{id}/movimentacoes', [MovimentacaoController::class, 'store']);
+    Route::apiResource('funcionarios', FuncionarioController::class);
 
-// Relatórios
-Route::get('/relatorio', [RelatorioController::class, 'index']);
+    Route::get('/funcionarios/{funcionario}/movimentacoes', [MovimentacaoController::class, 'index']);
+    Route::post('/funcionarios/{funcionario}/movimentacoes', [MovimentacaoController::class, 'store']);
+    Route::post('/funcionarios/{funcionario}/movimentacoes/async', [MovimentacaoController::class, 'storeAsync']);
+
+    Route::get('/relatorio', [RelatorioController::class, 'index']);
+});
