@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Funcionario;
 use App\Models\Movimentacao;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class MovimentacaoService
@@ -30,6 +31,9 @@ class MovimentacaoService
                 : $funcionario->saldo - $valor;
 
             $funcionario->update(['saldo' => $novoSaldo]);
+
+            // Invalida o cache do relatório incrementando a versão global
+            Cache::increment('relatorio_version');
 
             return [
                 'movimentacao' => $movimentacao,

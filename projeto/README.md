@@ -266,7 +266,58 @@ Não existem models para `Administrador`, `Funcionario` ou `Movimentacao`. Todo 
 | Paginação padrão de 15 itens | Equilíbrio entre performance e usabilidade |
 | Testes com Pest PHP | Framework de testes moderno, sintaxe expressiva, recomendado pelo ecossistema Laravel |
 | Seed condicional (verifica dados no banco) | Evita destruição de dados em restarts. O entrypoint consulta o banco antes de seedar — mais robusto que lock file com volumes montados |
+| Covering index `(funcionario_id, tipo, valor)` em movimentações | Resolve JOIN + agregações (`SUM`, `COUNT`) inteiramente pelo índice, sem acessar linhas da tabela. EXPLAIN confirma `Using index` |
+| Cache com versionamento global no relatório | Evita reexecutar query pesada a cada requisição. Invalidação automática via `Cache::increment` no service de movimentações — sem risco de dados stale |
 | Migration de hash de senhas idempotente | Verifica se a senha já é bcrypt (`$2y$`) antes de hashear, permitindo reexecução segura sem corromper senhas já migradas |
+
+## Otimização de Performance — Relatório Consolidado
+
+O endpoint `GET /api/relatorio` foi o ponto mais crítico de performance identificado no code review. A correção aconteceu em duas etapas:
+
+### Etapa 1 — Eliminação do N+1 (code review)
+
+O código legado executava **5.001 queries** por requisição (1 para listar funcionários + 1 por funcionário para buscar movimentações). Substituímos por uma query única com `LEFT JOIN` e agregações SQL (`SUM`, `COUNT`, `GROUP BY`), reduzindo para **2 queries** (dados + count da paginação).
+
+### Etapa 2 — Índices de banco e cache (otimização adicional)
+
+Após a correção do N+1, a query única ainda fazia **full table scan** na tabela `movimentacoes` (a maior do sistema). Aplicamos duas otimizações complementares:
+
+#### Índices criados
+
+| Tabela | Índice | Colunas | Justificativa |
+|--------|--------|---------|---------------|
+| `movimentacoes` | `idx_mov_funcionario_tipo_valor` | `(funcionario_id, tipo, valor)` | **Covering index** — cobre o JOIN e as agregações `CASE WHEN`. O MySQL resolve `SUM` e `COUNT` direto pelo índice, sem ler as linhas reais da tabela |
+| `funcionarios` | `idx_func_deleted_at` | `(deleted_at)` | Acelera o filtro `WHERE deleted_at IS NULL` e o `COUNT(*)` da paginação |
+
+#### Resultado do EXPLAIN (com ~5.000 funcionários e ~1.3M movimentações)
+
+| Tabela | Antes (sem índice) | Depois (com índice) | Extra |
+|--------|-------------------|---------------------|-------|
+| `movimentacoes` | Full scan (~1.3M rows) | **267 rows por funcionário** via índice | **`Using index`** — melhor cenário possível, resolve tudo pelo índice sem tocar nos dados |
+| `funcionarios` | Full scan (~5.000 rows) | ~5.000 rows (esperado para tabela pequena) | `Using where` |
+
+O ganho principal está na tabela `movimentacoes`: de **full scan em 1.3 milhão de linhas** para **lookup indexado de ~267 linhas por funcionário**, inteiramente resolvido pelo covering index.
+
+#### Cache com versionamento
+
+Além dos índices, adicionamos cache no `RelatorioController` com estratégia de versionamento:
+
+- Cada página do relatório é cacheada por **5 minutos** (TTL adequado para dados administrativos)
+- A chave inclui uma **versão global** (`relatorio_version`) incrementada automaticamente pelo `MovimentacaoService` a cada nova movimentação
+- Quando uma movimentação é registrada, `Cache::increment('relatorio_version')` invalida todo o cache do relatório sem precisar conhecer quais páginas existem
+- Funciona com qualquer driver de cache (file, redis, database)
+
+| Cenário | Comportamento |
+|---------|---------------|
+| Primeira requisição (cache miss) | Executa a query (já otimizada pelos índices) e cacheia o resultado |
+| Requisições subsequentes (cache hit) | Retorno instantâneo, sem query ao banco |
+| Após nova movimentação | Versão incrementa, próxima requisição executa query fresca |
+
+#### Migration
+
+A otimização está na migration `2026_03_11_155716_add_performance_indexes_to_relatorio.php`, que pode ser revertida com `php artisan migrate:rollback` sem impacto funcional.
+
+---
 
 ## Como a IA foi utilizada
 
