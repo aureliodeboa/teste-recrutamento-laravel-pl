@@ -5,6 +5,8 @@ Sistema de gestão de bonificação de funcionários com moeda digital. Permite 
 ## Como subir o projeto
 
 ```bash
+git clone https://github.com/aureliodeboa/teste-recrutamento-laravel-pl.git
+cd teste-recrutamento-laravel-pl/projeto
 docker compose up -d --build
 ```
 
